@@ -63,6 +63,7 @@ function generarRectangulos(
 
             type:"rect",
 
+
             x0:xi,
             x1:xi+dx,
 
