@@ -54,6 +54,40 @@ function normalizarExpresion(expresion: string) {
     }
 }
 
+function evaluarConSoporte(expresion: string, x: number): number | null {
+    const texto = expresion.trim();
+    const match = texto.match(/^piecewise\((.*)\)$/i);
+    if (match) {
+        const contenido = match[1];
+        const ramas = contenido.split(/],\s*\[/).map((parte) => parte.trim());
+        for (let i = 0; i < ramas.length; i++) {
+            let rama = ramas[i];
+            if (rama.startsWith("[")) rama = rama.slice(1);
+            if (rama.endsWith("]")) rama = rama.slice(0, -1);
+            const partes = rama.split(",");
+            if (partes.length !== 2) continue;
+            const condicion = partes[0].trim();
+            const valorExpr = partes[1].trim();
+            try {
+                const condicionEval = Number(evaluate(condicion, { x }));
+                if (Number.isFinite(condicionEval) && condicionEval !== 0) {
+                    return Number(evaluate(valorExpr, { x }));
+                }
+            } catch {
+                // intentar siguiente rama
+            }
+        }
+        return null;
+    }
+
+    try {
+        const valor = Number(evaluate(texto, { x }));
+        return Number.isFinite(valor) ? valor : null;
+    } catch {
+        return null;
+    }
+}
+
 function integrarNodo(node: unknown): { ok: boolean; expresion: string } {
     if (typeof node !== "object" || node === null || !("type" in node)) {
         return { ok: false, expresion: "" };
@@ -171,18 +205,37 @@ function integrarNodo(node: unknown): { ok: boolean; expresion: string } {
 }
 
 export function evaluarFuncion(funcion: string, x: number): number | null {
-    try {
-        const valor = evaluate(funcion, { x });
-        const numero = Number(valor);
+    return evaluarConSoporte(funcion, x);
+}
 
-        if (Number.isFinite(numero)) {
-            return numero;
-        }
-
-        return null;
-    } catch {
+export function calcularAreaReal(funcion: string, a: number, b: number): number | null {
+    if (!Number.isFinite(a) || !Number.isFinite(b) || a >= b) {
         return null;
     }
+
+    const steps = 800;
+    const h = (b - a) / steps;
+    let sum = 0;
+
+    for (let i = 0; i <= steps; i++) {
+        const xval = a + i * h;
+        const valor = evaluarFuncion(funcion, xval);
+        const absValor = valor == null ? null : Math.abs(valor);
+
+        if (absValor == null) {
+            continue;
+        }
+
+        if (i === 0 || i === steps) {
+            sum += absValor;
+        } else if (i % 2 === 0) {
+            sum += 2 * absValor;
+        } else {
+            sum += 4 * absValor;
+        }
+    }
+
+    return (h / 3) * sum;
 }
 
 export function calcularRiemann(
