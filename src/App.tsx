@@ -2,9 +2,23 @@
 import createPlotlyComponent from "react-plotly.js/factory";
 import Plotly from "plotly.js-dist-min";
 import { evaluate, parse } from "mathjs";
+import { jsPDF } from "jspdf";
+import html2canvas from "html2canvas";
 import { calcularRiemann, generarRectangulos, calcularIntegralExacta, calcularAreaReal, type MetodoRectangulos, type VistaRectangulos } from "./utils/riemann";
 
 const Plot = createPlotlyComponent(Plotly);
+
+function formatearExpresionParaUI(input: string): string {
+    let expr = (input ?? "").trim();
+    if (!expr) return "f(x)";
+    expr = expr.replace(/\bpi\b/gi, "π");
+    expr = expr.replace(/\blog\(/gi, "ln(");
+    expr = expr.replace(/\bexp\(([^)]+)\)/gi, "e^($1)");
+    expr = expr.replace(/sqrt\(([^)]+)\)/gi, "√($1)");
+    expr = expr.replace(/\^2/g, "²");
+    expr = expr.replace(/\^3/g, "³");
+    return expr;
+}
 
 function normalizarExpresion(input: string): string {
     let expr = (input ?? "").trim();
@@ -81,8 +95,12 @@ function App() {
     const [guessMode, setGuessMode] = useState(false);
     const [guessValue, setGuessValue] = useState("");
     const [guessFeedback, setGuessFeedback] = useState("");
+    const [guessStatus, setGuessStatus] = useState<"idle" | "success" | "near" | "far">("idle");
+    const [showConfetti, setShowConfetti] = useState(false);
+    const [hasCalculated, setHasCalculated] = useState(false);
     const inputRef = useRef<HTMLInputElement | null>(null);
     const plotRef = useRef<any>(null);
+    const plotContainerRef = useRef<HTMLDivElement | null>(null);
 
     const opcionesVista: Array<{ value: VistaRectangulos; label: string; color: string }> = [
         { value: "todos", label: "Todos", color: "#38bdf8" },
@@ -159,6 +177,12 @@ function App() {
         return () => window.clearInterval(id);
     }, [isAnimating, funcion, a, b, n, metodo]);
 
+    useEffect(() => {
+        if (!showConfetti) return;
+        const id = window.setTimeout(() => setShowConfetti(false), 1200);
+        return () => window.clearTimeout(id);
+    }, [showConfetti]);
+
     const validation = useMemo(() => {
         const errors: string[] = [];
         const warnings: string[] = [];
@@ -208,8 +232,15 @@ function App() {
 
     const resultado = useMemo(() => calcularRiemann(funcion, a, b, n, metodo), [a, b, funcion, metodo, n]);
     const resultadoComparacion = useMemo(() => calcularRiemann(funcion, a, b, comparisonN, metodo), [a, b, comparisonN, funcion, metodo]);
+    const resultadosMetodos = useMemo(() => ({
+        inferior: calcularRiemann(funcion, a, b, n, "inferior"),
+        superior: calcularRiemann(funcion, a, b, n, "superior"),
+        medio: calcularRiemann(funcion, a, b, n, "medio")
+    }), [a, b, funcion, n]);
     const areaReal = useMemo(() => calcularAreaReal(funcion, a, b), [a, b, funcion]);
     const exactValue = integralInputResult?.valor ?? resultado.integral.valor ?? null;
+    const errorAbsoluto = exactValue != null ? Math.abs(resultado.areaTotal - exactValue) : null;
+    const errorRelativo = errorAbsoluto != null && exactValue != null && exactValue !== 0 ? (errorAbsoluto / Math.abs(exactValue)) * 100 : null;
     const dataConvergencia = useMemo(() => {
         const valores = [5, 10, 20, 40, 80, 160];
         return valores.map((valorN) => {
@@ -262,6 +293,106 @@ function App() {
         return rectangulos.slice(0, target);
     }, [animationProgress, rectangulos]);
 
+    function buildPlotFigure(width?: number, height?: number) {
+        const exportWidth = width ?? Math.max(1200, plotContainerRef.current?.clientWidth ?? 1200);
+        const exportHeight = height ?? Math.max(780, plotContainerRef.current?.clientHeight ?? 560);
+
+        return {
+            data: [
+                {
+                    x,
+                    y,
+                    type: "scatter",
+                    mode: "lines",
+                    name: "f(x)",
+                    line: { color: "#38bdf8", width: 3 }
+                }
+            ],
+            layout: {
+                width: exportWidth,
+                height: exportHeight,
+                margin: { l: 56, r: 20, t: 10, b: 50 },
+                paper_bgcolor: themeVars.cardBg,
+                plot_bgcolor: themeVars.cardBg,
+                shapes: rectangulosVisibles.map((shape) => ({ ...shape, line: { ...(shape as any).line, color: (shape as any).fillcolor ?? "rgba(15,23,42,0.95)" }, layer: "below" })),
+                xaxis: {
+                    title: "Eje X",
+                    zeroline: true,
+                    color: themeVars.plotText,
+                    tickfont: { color: themeVars.plotText, size: 12 },
+                    gridcolor: themeVars.panelBorder,
+                    zerolinecolor: themeVars.panelBorder,
+                    range: layoutOverride.xaxis?.range ?? undefined,
+                    dtick: layoutOverride.xaxis?.dtick ?? undefined,
+                    tick0: layoutOverride.xaxis?.tick0 ?? undefined
+                },
+                yaxis: {
+                    title: "f(x)",
+                    color: themeVars.plotText,
+                    tickfont: { color: themeVars.plotText, size: 12 },
+                    gridcolor: themeVars.panelBorder,
+                    zerolinecolor: themeVars.panelBorder,
+                    autorange: layoutOverride.yaxis?.autorange ?? true,
+                    dtick: layoutOverride.yaxis?.dtick ?? undefined,
+                    tick0: layoutOverride.yaxis?.tick0 ?? undefined
+                },
+                showlegend: true,
+                legend: { bgcolor: "transparent", font: { color: themeVars.plotText }, orientation: "h", yanchor: "bottom", y: 1.02, xanchor: "left", x: 0 }
+            },
+            config: { responsive: false, scrollZoom: true, displayModeBar: false }
+        };
+    }
+
+    function evaluateGuess(nextValue: string, options?: { enabled?: boolean; target?: number | null; mode?: boolean }) {
+        const enabled = options?.enabled ?? (hasCalculated && guessMode);
+        const activeMode = options?.mode ?? guessMode;
+        if (!enabled || !activeMode) {
+            setGuessFeedback("");
+            setGuessStatus("idle");
+            setShowConfetti(false);
+            return;
+        }
+
+        const target = options?.target ?? (areaReal ?? exactValue ?? resultado.areaTotal);
+        const parsedValue = Number(String(nextValue).replace(",", "."));
+
+        if (!nextValue.trim()) {
+            setGuessFeedback("");
+            setGuessStatus("idle");
+            setShowConfetti(false);
+            return;
+        }
+
+        if (!Number.isFinite(parsedValue)) {
+            setGuessFeedback("Escribe un número válido.");
+            setGuessStatus("far");
+            setShowConfetti(false);
+            return;
+        }
+
+        const diff = Math.abs(parsedValue - (target ?? 0));
+        const prompt = "área real";
+        const tolerance = Math.max(0.05, Math.abs(target ?? 0) * 0.05 + 0.05);
+
+        if (diff <= tolerance) {
+            setGuessStatus("success");
+            setGuessFeedback(`¡Acertaste! Tu estimación para ${prompt} fue correcta.`);
+            setShowConfetti(true);
+            return;
+        }
+
+        if (diff <= tolerance * 2.2) {
+            setGuessStatus("near");
+            setGuessFeedback(`Cerca. Te faltaron ${diff.toFixed(2)} unidades aprox. para ${prompt}.`);
+            setShowConfetti(false);
+            return;
+        }
+
+        setGuessStatus("far");
+        setGuessFeedback(`Lejos. Te faltaron ${diff.toFixed(2)} unidades aprox. para ${prompt}.`);
+        setShowConfetti(false);
+    }
+
     function handleCalcular() {
         const parsed = parseDefiniteIntegral(editFuncion);
         const expressionFinal = parsed ? normalizarExpresion(parsed.expr) : normalizarExpresion(editFuncion);
@@ -269,6 +400,7 @@ function App() {
 
         const resumen = calcularRiemann(expressionFinal, a, b, n, metodo);
         const exacto = resumen.integral.valor;
+        const targetGuess = guessMode ? (calcularAreaReal(expressionFinal, a, b) ?? exacto ?? resumen.areaTotal) : null;
         setHistory((prev) => [{
             id: Date.now(),
             expresion: expressionFinal,
@@ -279,8 +411,14 @@ function App() {
             metodo
         }, ...prev].slice(0, 6));
         setGuessFeedback("");
+        setGuessStatus("idle");
+        setShowConfetti(false);
         setAnimationProgress(0);
         setIsAnimating(true);
+        setHasCalculated(true);
+        if (guessMode && guessValue.trim()) {
+            evaluateGuess(guessValue, { enabled: true, target: targetGuess, mode: true });
+        }
     }
 
     function handleLimpiar() {
@@ -296,34 +434,83 @@ function App() {
         setComparisonN(10);
         setGuessValue("");
         setGuessFeedback("");
+        setGuessStatus("idle");
+        setShowConfetti(false);
         setAnimationProgress(0);
         setIsAnimating(false);
+        setHasCalculated(false);
     }
 
     async function handleExport(format: "png" | "pdf") {
-        const gd = plotRef.current?.el;
-        if (!gd) return;
+        if (format === "pdf") {
+            const pdf = new jsPDF("landscape", "pt", "a4");
+            const source = plotContainerRef.current;
+            if (!source) {
+                window.alert("No se pudo preparar el gráfico para exportar.");
+                return;
+            }
+
+            try {
+                const canvas = await html2canvas(source, {
+                    backgroundColor: "#ffffff",
+                    scale: 2,
+                    useCORS: true,
+                    logging: false,
+                    width: source.scrollWidth,
+                    height: source.scrollHeight
+                });
+
+                const imgData = canvas.toDataURL("image/png");
+                const pageWidth = pdf.internal.pageSize.getWidth();
+                const imgWidth = pageWidth - 40;
+                const imgHeight = (canvas.height * imgWidth) / canvas.width;
+                const position = 20;
+
+                pdf.addImage(imgData, "PNG", 20, position, imgWidth, imgHeight);
+                pdf.save("Visualizador Interactivo de la Suma de Riemann.pdf");
+            } catch {
+                window.alert("No se pudo generar el PDF. Intenta de nuevo.");
+            }
+            return;
+        }
+
+        const container = plotContainerRef.current;
+        const width = Math.max(1200, Math.round(container?.clientWidth ?? 1200));
+        const height = Math.max(780, Math.round(container?.clientHeight ?? 560));
+        const figure = buildPlotFigure(width, height);
+        const exportDiv = document.createElement("div");
+        exportDiv.style.position = "fixed";
+        exportDiv.style.left = "-9999px";
+        exportDiv.style.top = "-9999px";
+        exportDiv.style.width = `${width}px`;
+        exportDiv.style.height = `${height}px`;
+        document.body.appendChild(exportDiv);
+
         try {
-            const dataUrl = await Plotly.toImage(gd, { format, width: 1600, height: 1000, scale: 2 });
+            await Plotly.newPlot(exportDiv, figure.data as any, figure.layout as any, figure.config as any);
+            await new Promise((resolve) => window.setTimeout(resolve, 220));
+            const dataUrl = await Plotly.toImage(exportDiv, { format, width, height, scale: 2 });
             const link = document.createElement("a");
             link.href = dataUrl;
-            link.download = `riemann-${format}.${format}`;
+            link.download = `Visualizador Interactivo de la Suma de Riemann.${format}`;
+            document.body.appendChild(link);
             link.click();
+            link.remove();
         } catch {
-            window.alert("No se pudo exportar la vista. Intenta de nuevo.");
+            window.alert("No se pudo exportar automáticamente. El navegador puede estar bloqueando la descarga. Intenta nuevamente o habilita las descargas en esta página.");
+        } finally {
+            try {
+                Plotly.purge(exportDiv);
+            } catch {
+                // ignore
+            }
+            exportDiv.remove();
         }
     }
 
-    function handleGuess() {
-        const target = guessMode ? (areaReal ?? exactValue ?? resultado.areaTotal) : (exactValue ?? resultado.integral.valor ?? resultado.areaTotal);
-        const parsedValue = Number(String(guessValue).replace(",", "."));
-        if (!Number.isFinite(parsedValue)) {
-            setGuessFeedback("Escribe un número válido.");
-            return;
-        }
-        const diff = Math.abs(parsedValue - (target ?? 0));
-        const prompt = guessMode ? "área real" : "integral exacta";
-        setGuessFeedback(diff < (Math.abs(target ?? 0) * 0.05 + 0.05) ? `¡Muy bien! Tu estimación para ${prompt} fue cercana.` : `Te faltaron ${diff.toFixed(2)} unidades aprox. para ${prompt}.`);
+    function handleGuess(nextValue: string) {
+        setGuessValue(nextValue);
+        evaluateGuess(nextValue);
     }
 
     function niceTickStep(range: number, targetCount = 8) {
@@ -380,8 +567,18 @@ function App() {
         setLayoutOverride(newOverride);
     }
 
+    const confettiPieces = Array.from({ length: 14 }, (_, index) => ({
+        id: index,
+        left: `${16 + (index % 7) * 10}%`,
+        top: `${20 + Math.floor(index / 7) * 12}%`,
+        dx: (index % 2 === 0 ? -1 : 1) * (20 + (index % 4) * 18),
+        dy: -70 - (index % 5) * 12,
+        color: ["#38bdf8", "#f59e0b", "#10b981", "#f43f5e", "#fef08a"][index % 5]
+    }));
+
     return (
         <div style={{ minHeight: "100vh", background: themeVars.pageBg, color: themeVars.text, fontFamily: "Inter, 'Segoe UI', sans-serif", padding: 18 }}>
+            <style>{`@keyframes guessBurst { 0% { transform: translate(0, 0) scale(0.8); opacity: 1; } 100% { transform: translate(var(--dx), var(--dy)) scale(0.15); opacity: 0; } }`}</style>
             <div style={{ maxWidth: 1320, margin: "0 auto", display: "grid", gap: 18 }}>
                 <header style={{ background: themeVars.panelBg, border: `1px solid ${themeVars.panelBorder}`, borderRadius: 24, padding: 24, boxShadow: "0 20px 50px rgba(15,23,42,0.16)" }}>
                     <div style={{ display: "flex", justifyContent: "space-between", gap: 16, flexWrap: "wrap", alignItems: "center" }}>
@@ -393,6 +590,9 @@ function App() {
                             <p style={{ margin: "8px 0 0", maxWidth: 760, color: themeVars.muted, lineHeight: 1.6 }}>
                                 Una herramienta elegante para explorar cómo una suma de rectángulos aproxima una integral definida y cómo cambia con el método, los intervalos y la cantidad de particiones.
                             </p>
+                            <div style={{ marginTop: 10, fontSize: "1rem", fontWeight: 700, color: themeVars.text }}>
+                                Función actual: {formatearExpresionParaUI(funcion)}
+                            </div>
                         </div>
                         <button
                             onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
@@ -516,28 +716,10 @@ function App() {
                             ))}
                         </div>
 
-                        <div style={{ borderTop: `1px solid ${themeVars.panelBorder}`, marginTop: 14, paddingTop: 14, display: "grid", gap: 10 }}>
+                        <div style={{ borderTop: `1px solid ${themeVars.panelBorder}`, marginTop: 14, paddingTop: 14 }}>
                             <div style={{ background: themeVars.cardBg, border: `1px solid ${themeVars.cardBorder}`, borderRadius: 14, padding: "10px 12px" }}>
-                                <div style={{ color: themeVars.muted, fontSize: "0.9rem" }}>Δx</div>
-                                <div style={{ fontSize: "1.08rem", fontWeight: 800, color: themeVars.text }}>{resultado.dx.toFixed(6)}</div>
-                            </div>
-                            <div style={{ background: themeVars.cardBg, border: `1px solid ${themeVars.cardBorder}`, borderRadius: 14, padding: "10px 12px" }}>
-                                <div style={{ color: themeVars.muted, fontSize: "0.9rem" }}>Suma de rectángulos</div>
-                                <div style={{ fontSize: "1.08rem", fontWeight: 800, color: themeVars.text }}>{resultado.areaTotal.toFixed(6)}</div>
-                            </div>
-                            <div style={{ background: themeVars.cardBg, border: `1px solid ${themeVars.cardBorder}`, borderRadius: 14, padding: "10px 12px" }}>
-                                <div style={{ color: themeVars.muted, fontSize: "0.9rem" }}>Integral exacta</div>
-                                {integralInputResult ? (
-                                    <>
-                                        <div style={{ fontSize: "0.92rem", color: themeVars.text, marginTop: 4 }}>{integralInputResult.expresion}</div>
-                                        <div style={{ fontSize: "1.05rem", fontWeight: 800, color: themeVars.accent }}>{integralInputResult.valor != null ? integralInputResult.valor.toFixed(6) : "—"}</div>
-                                    </>
-                                ) : (
-                                    <>
-                                        <div style={{ fontSize: "0.92rem", color: themeVars.text, marginTop: 4 }}>{resultado.integral.disponible ? resultado.integral.expresion : "No disponible"}</div>
-                                        <div style={{ fontSize: "1.05rem", fontWeight: 800, color: themeVars.accent }}>{resultado.integral.valor !== null ? resultado.integral.valor.toFixed(6) : "—"}</div>
-                                    </>
-                                )}
+                                <div style={{ color: themeVars.muted, fontSize: "0.9rem", marginBottom: 6 }}>Resultados</div>
+                                <div style={{ color: themeVars.text, fontSize: "0.95rem" }}>Pulsa Calcular para revelar Δx, la suma de rectángulos, la integral exacta, comparaciones y el resto de herramientas.</div>
                             </div>
                         </div>
                     </aside>
@@ -565,7 +747,7 @@ function App() {
                                 </button>
                             </div>
                         </div>
-                        <div style={{ height: 560, padding: 8 }}>
+                        <div ref={plotContainerRef} id="riemann-plot" style={{ height: 560, padding: 8 }}>
                             <Plot
                                 ref={plotRef}
                                 data={[
@@ -614,62 +796,137 @@ function App() {
                             />
                         </div>
                         <div style={{ padding: 16, borderTop: `1px solid ${themeVars.panelBorder}`, display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))" }}>
-                            <div style={{ background: themeVars.panelBg, border: `1px solid ${themeVars.panelBorder}`, borderRadius: 18, padding: 14 }}>
-                                <div style={{ fontSize: "0.95rem", color: themeVars.muted, marginBottom: 8 }}>Comparador en tiempo real</div>
-                                <input type="range" min="2" max="200" value={comparisonN} onChange={(e) => setComparisonN(Number(e.target.value))} style={{ width: "100%" }} />
-                                <div style={{ marginTop: 8, color: themeVars.text, fontWeight: 700 }}>n = {comparisonN} · Área ≈ {resultadoComparacion.areaTotal.toFixed(4)}</div>
-                            </div>
-                            <div style={{ background: themeVars.panelBg, border: `1px solid ${themeVars.panelBorder}`, borderRadius: 18, padding: 14 }}>
-                                <div style={{ fontSize: "0.95rem", color: themeVars.muted, marginBottom: 8 }}>Área real con |f(x)|</div>
-                                <div style={{ fontWeight: 800, color: themeVars.text }}>{areaReal != null ? areaReal.toFixed(4) : "—"}</div>
-                            </div>
-                            <div style={{ background: themeVars.panelBg, border: `1px solid ${themeVars.panelBorder}`, borderRadius: 18, padding: 14 }}>
+                            <div style={{ position: "relative", overflow: "hidden", background: guessStatus === "success" ? "rgba(16, 185, 129, 0.14)" : guessStatus === "near" ? "rgba(249, 115, 22, 0.14)" : guessStatus === "far" ? "rgba(239, 68, 68, 0.14)" : themeVars.panelBg, border: `1px solid ${guessStatus === "success" ? "rgba(16, 185, 129, 0.45)" : guessStatus === "near" ? "rgba(249, 115, 22, 0.45)" : guessStatus === "far" ? "rgba(239, 68, 68, 0.45)" : themeVars.panelBorder}`, borderRadius: 18, padding: 14 }}>
+                                {showConfetti && guessStatus === "success" ? (
+                                    <div style={{ position: "absolute", inset: 0, pointerEvents: "none", overflow: "hidden", borderRadius: 18 }}>
+                                        {confettiPieces.map((piece) => (
+                                            <span
+                                                key={piece.id}
+                                                style={{
+                                                    position: "absolute",
+                                                    left: piece.left,
+                                                    top: piece.top,
+                                                    width: 8,
+                                                    height: 8,
+                                                    borderRadius: 999,
+                                                    background: piece.color,
+                                                    animation: "guessBurst 0.9s ease-out forwards",
+                                                    opacity: 0.95,
+                                                    ["--dx" as any]: `${piece.dx}px`,
+                                                    ["--dy" as any]: `${piece.dy}px`
+                                                }}
+                                            />
+                                        ))}
+                                    </div>
+                                ) : null}
                                 <div style={{ fontSize: "0.95rem", color: themeVars.muted, marginBottom: 8 }}>Modo adivina</div>
                                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
                                     <button onClick={() => setGuessMode(false)} style={{ border: "none", borderRadius: 999, padding: "7px 10px", cursor: "pointer", background: !guessMode ? themeVars.accent : themeVars.chipBg, color: !guessMode ? (theme === "dark" ? "#06202f" : "#f8fafc") : themeVars.text, fontWeight: 700 }}>Integral exacta</button>
                                     <button onClick={() => setGuessMode(true)} style={{ border: "none", borderRadius: 999, padding: "7px 10px", cursor: "pointer", background: guessMode ? themeVars.accent : themeVars.chipBg, color: guessMode ? (theme === "dark" ? "#06202f" : "#f8fafc") : themeVars.text, fontWeight: 700 }}>Área real</button>
                                 </div>
-                                <input value={guessValue} onChange={(e) => setGuessValue(e.target.value)} placeholder="Tu estimación" style={{ width: "100%", padding: "8px 10px", borderRadius: 10, border: `1px solid ${themeVars.cardBorder}`, background: themeVars.cardBg, color: themeVars.text, marginBottom: 8 }} />
-                                <button onClick={handleGuess} style={{ width: "100%", padding: "8px 10px", border: "none", borderRadius: 10, background: themeVars.accent, color: theme === "dark" ? "#06202f" : "#f8fafc", fontWeight: 700, cursor: "pointer" }}>Comprobar</button>
-                                {guessFeedback ? <div style={{ marginTop: 8, color: themeVars.text, fontSize: "0.95rem" }}>{guessFeedback}</div> : null}
+                                <input value={guessValue} onChange={(e) => handleGuess(e.target.value)} placeholder="Tu estimación" style={{ width: "100%", padding: "8px 10px", borderRadius: 10, border: `1px solid ${guessStatus === "success" ? "rgba(16, 185, 129, 0.45)" : guessStatus === "near" ? "rgba(249, 115, 22, 0.45)" : guessStatus === "far" ? "rgba(239, 68, 68, 0.45)" : themeVars.cardBorder}`, background: themeVars.cardBg, color: themeVars.text, marginBottom: 8 }} />
+                                {guessFeedback ? <div style={{ marginTop: 8, color: guessStatus === "success" ? "#10b981" : guessStatus === "near" ? "#f97316" : guessStatus === "far" ? "#ef4444" : themeVars.text, fontSize: "0.95rem" }}>{guessFeedback}</div> : null}
                             </div>
-                            <div style={{ background: themeVars.panelBg, border: `1px solid ${themeVars.panelBorder}`, borderRadius: 18, padding: 14 }}>
-                                <div style={{ fontSize: "0.95rem", color: themeVars.muted, marginBottom: 8 }}>Historial de cálculos</div>
-                                <div style={{ display: "grid", gap: 8 }}>
-                                    {history.length === 0 ? <div style={{ color: themeVars.muted }}>Pulsa calcular para guardar una simulación.</div> : history.map((entry) => (
-                                        <div key={entry.id} style={{ border: `1px solid ${themeVars.panelBorder}`, borderRadius: 12, padding: "8px 10px", background: themeVars.cardBg }}>
-                                            <div style={{ fontSize: "0.9rem", color: themeVars.muted }}>{entry.tiempo} · n={entry.n} · {entry.metodo}</div>
-                                            <div style={{ fontWeight: 700, color: themeVars.text }}>{entry.expresion}</div>
-                                            <div style={{ fontSize: "0.9rem", color: themeVars.accent }}>Área ≈ {entry.area.toFixed(3)} · exacta {entry.exacta != null ? entry.exacta.toFixed(3) : "—"}</div>
+                            {!hasCalculated ? (
+                                <div style={{ gridColumn: "1 / -1", background: themeVars.panelBg, border: `1px solid ${themeVars.panelBorder}`, borderRadius: 18, padding: 16, color: themeVars.muted }}>
+                                    Pulsa Calcular para revelar los resultados: Δx, suma de rectángulos, integral exacta, comparación entre métodos, área real, historial y convergencia.
+                                </div>
+                            ) : (
+                                <>
+                                    <div style={{ background: themeVars.panelBg, border: `1px solid ${themeVars.panelBorder}`, borderRadius: 18, padding: 14 }}>
+                                        <div style={{ fontSize: "0.95rem", color: themeVars.muted, marginBottom: 8 }}>Δx</div>
+                                        <div style={{ fontSize: "1.08rem", fontWeight: 800, color: themeVars.text }}>{resultado.dx.toFixed(6)}</div>
+                                    </div>
+                                    <div style={{ background: themeVars.panelBg, border: `1px solid ${themeVars.panelBorder}`, borderRadius: 18, padding: 14 }}>
+                                        <div style={{ fontSize: "0.95rem", color: themeVars.muted, marginBottom: 8 }}>Suma de rectángulos</div>
+                                        <div style={{ fontSize: "1.08rem", fontWeight: 800, color: themeVars.text }}>{resultado.areaTotal.toFixed(6)}</div>
+                                    </div>
+                                    <div style={{ background: themeVars.panelBg, border: `1px solid ${themeVars.panelBorder}`, borderRadius: 18, padding: 14 }}>
+                                        <div style={{ fontSize: "0.95rem", color: themeVars.muted, marginBottom: 8 }}>Integral exacta</div>
+                                        {integralInputResult ? (
+                                            <>
+                                                <div style={{ fontSize: "0.92rem", color: themeVars.text, marginTop: 4 }}>{integralInputResult.expresion}</div>
+                                                <div style={{ fontSize: "1.05rem", fontWeight: 800, color: themeVars.accent }}>{integralInputResult.valor != null ? integralInputResult.valor.toFixed(6) : "—"}</div>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <div style={{ fontSize: "0.92rem", color: themeVars.text, marginTop: 4 }}>{resultado.integral.disponible ? resultado.integral.expresion : "No disponible"}</div>
+                                                <div style={{ fontSize: "1.05rem", fontWeight: 800, color: themeVars.accent }}>{resultado.integral.valor !== null ? resultado.integral.valor.toFixed(6) : "—"}</div>
+                                            </>
+                                        )}
+                                        {errorAbsoluto != null ? (
+                                            <div style={{ marginTop: 6, fontSize: "0.9rem", color: themeVars.muted }}>
+                                                Error absoluto: <span style={{ color: themeVars.text, fontWeight: 700 }}>{errorAbsoluto.toFixed(6)}</span>
+                                                {errorRelativo != null ? <><br />Error relativo: <span style={{ color: themeVars.text, fontWeight: 700 }}>{errorRelativo.toFixed(4)}%</span></> : null}
+                                            </div>
+                                        ) : null}
+                                    </div>
+                                    <div style={{ gridColumn: "1 / -1", background: themeVars.panelBg, border: `1px solid ${themeVars.panelBorder}`, borderRadius: 18, padding: 14 }}>
+                                        <div style={{ fontSize: "0.95rem", color: themeVars.muted, marginBottom: 8 }}>Comparación rápida de métodos</div>
+                                        <div style={{ display: "grid", gap: 8, gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>
+                                            {[
+                                                { key: "inferior", label: "Izquierdo", color: "#38bdf8", value: resultadosMetodos.inferior.areaTotal },
+                                                { key: "superior", label: "Derecho", color: "#f97316", value: resultadosMetodos.superior.areaTotal },
+                                                { key: "medio", label: "Punto medio", color: "#10b981", value: resultadosMetodos.medio.areaTotal }
+                                            ].map((item) => (
+                                                <div key={item.key} style={{ border: `1px solid ${themeVars.panelBorder}`, borderRadius: 12, padding: "10px 12px", background: themeVars.cardBg }}>
+                                                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                                                        <span style={{ width: 10, height: 10, borderRadius: 999, background: item.color }} />
+                                                        <span style={{ color: themeVars.text, fontWeight: 700 }}>{item.label}</span>
+                                                    </div>
+                                                    <div style={{ color: themeVars.muted, fontSize: "0.9rem" }}>≈ {item.value.toFixed(4)}</div>
+                                                </div>
+                                            ))}
                                         </div>
-                                    ))}
-                                </div>
-                            </div>
-                            <div style={{ background: themeVars.panelBg, border: `1px solid ${themeVars.panelBorder}`, borderRadius: 18, padding: 14 }}>
-                                <div style={{ fontSize: "0.95rem", color: themeVars.muted, marginBottom: 8 }}>Convergencia (error vs. n)</div>
-                                <svg viewBox="0 0 320 140" width="100%" height="140" style={{ display: "block" }}>
-                                    <line x1="12" y1="118" x2="308" y2="118" stroke={themeVars.panelBorder} />
-                                    <line x1="12" y1="12" x2="12" y2="118" stroke={themeVars.panelBorder} />
-                                    {dataConvergencia.map((point, index) => {
-                                        const xPos = 20 + (index / (dataConvergencia.length - 1)) * 288;
-                                        const yPos = 118 - (Math.min(1, point.error / Math.max(1, Math.max(...dataConvergencia.map((item) => item.error)))) * 90);
-                                        return <circle key={point.n} cx={xPos} cy={yPos} r="3" fill={themeVars.accent} />;
-                                    })}
-                                    <polyline
-                                        fill="none"
-                                        stroke={themeVars.accent}
-                                        strokeWidth="2"
-                                        points={dataConvergencia.map((point, index) => {
-                                            const xPos = 20 + (index / (dataConvergencia.length - 1)) * 288;
-                                            const yPos = 118 - (Math.min(1, point.error / Math.max(1, Math.max(...dataConvergencia.map((item) => item.error)))) * 90);
-                                            return `${xPos},${yPos}`;
-                                        }).join(" ")}
-                                    />
-                                </svg>
-                                <div style={{ display: "flex", justifyContent: "space-between", color: themeVars.muted, fontSize: "0.8rem", marginTop: 6 }}>
-                                    {dataConvergencia.map((point) => <span key={point.n}>{point.n}</span>)}
-                                </div>
-                            </div>
+                                    </div>
+                                    <div style={{ background: themeVars.panelBg, border: `1px solid ${themeVars.panelBorder}`, borderRadius: 18, padding: 14 }}>
+                                        <div style={{ fontSize: "0.95rem", color: themeVars.muted, marginBottom: 8 }}>Comparador en tiempo real</div>
+                                        <input type="range" min="2" max="200" value={comparisonN} onChange={(e) => setComparisonN(Number(e.target.value))} style={{ width: "100%" }} />
+                                        <div style={{ marginTop: 8, color: themeVars.text, fontWeight: 700 }}>n = {comparisonN} · Área ≈ {resultadoComparacion.areaTotal.toFixed(4)}</div>
+                                    </div>
+                                    <div style={{ background: themeVars.panelBg, border: `1px solid ${themeVars.panelBorder}`, borderRadius: 18, padding: 14 }}>
+                                        <div style={{ fontSize: "0.95rem", color: themeVars.muted, marginBottom: 8 }}>Área real con |f(x)|</div>
+                                        <div style={{ fontWeight: 800, color: themeVars.text }}>{areaReal != null ? areaReal.toFixed(4) : "—"}</div>
+                                    </div>
+                                    <div style={{ background: themeVars.panelBg, border: `1px solid ${themeVars.panelBorder}`, borderRadius: 18, padding: 14 }}>
+                                        <div style={{ fontSize: "0.95rem", color: themeVars.muted, marginBottom: 8 }}>Historial de cálculos</div>
+                                        <div style={{ display: "grid", gap: 8 }}>
+                                            {history.length === 0 ? <div style={{ color: themeVars.muted }}>Pulsa calcular para guardar una simulación.</div> : history.map((entry) => (
+                                                <div key={entry.id} style={{ border: `1px solid ${themeVars.panelBorder}`, borderRadius: 12, padding: "8px 10px", background: themeVars.cardBg }}>
+                                                    <div style={{ fontSize: "0.9rem", color: themeVars.muted }}>{entry.tiempo} · n={entry.n} · {entry.metodo}</div>
+                                                    <div style={{ fontWeight: 700, color: themeVars.text }}>{entry.expresion}</div>
+                                                    <div style={{ fontSize: "0.9rem", color: themeVars.accent }}>Área ≈ {entry.area.toFixed(3)} · exacta {entry.exacta != null ? entry.exacta.toFixed(3) : "—"}</div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                    <div style={{ background: themeVars.panelBg, border: `1px solid ${themeVars.panelBorder}`, borderRadius: 18, padding: 14 }}>
+                                        <div style={{ fontSize: "0.95rem", color: themeVars.muted, marginBottom: 8 }}>Convergencia (error vs. n)</div>
+                                        <svg viewBox="0 0 320 140" width="100%" height="140" style={{ display: "block" }}>
+                                            <line x1="12" y1="118" x2="308" y2="118" stroke={themeVars.panelBorder} />
+                                            <line x1="12" y1="12" x2="12" y2="118" stroke={themeVars.panelBorder} />
+                                            {dataConvergencia.map((point, index) => {
+                                                const xPos = 20 + (index / (dataConvergencia.length - 1)) * 288;
+                                                const yPos = 118 - (Math.min(1, point.error / Math.max(1, Math.max(...dataConvergencia.map((item) => item.error)))) * 90);
+                                                return <circle key={point.n} cx={xPos} cy={yPos} r="3" fill={themeVars.accent} />;
+                                            })}
+                                            <polyline
+                                                fill="none"
+                                                stroke={themeVars.accent}
+                                                strokeWidth="2"
+                                                points={dataConvergencia.map((point, index) => {
+                                                    const xPos = 20 + (index / (dataConvergencia.length - 1)) * 288;
+                                                    const yPos = 118 - (Math.min(1, point.error / Math.max(1, Math.max(...dataConvergencia.map((item) => item.error)))) * 90);
+                                                    return `${xPos},${yPos}`;
+                                                }).join(" ")}
+                                            />
+                                        </svg>
+                                        <div style={{ display: "flex", justifyContent: "space-between", color: themeVars.muted, fontSize: "0.8rem", marginTop: 6 }}>
+                                            {dataConvergencia.map((point) => <span key={point.n}>{point.n}</span>)}
+                                        </div>
+                                    </div>
+                                </>
+                            )}
                         </div>
                     </main>
                 </section>
