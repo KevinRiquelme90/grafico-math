@@ -345,16 +345,16 @@ function App() {
     }
 
     function evaluateGuess(nextValue: string, options?: { enabled?: boolean; target?: number | null; mode?: boolean }) {
-        const enabled = options?.enabled ?? (hasCalculated && guessMode);
+        const enabled = options?.enabled ?? hasCalculated;
         const activeMode = options?.mode ?? guessMode;
-        if (!enabled || !activeMode) {
+        if (!enabled) {
             setGuessFeedback("");
             setGuessStatus("idle");
             setShowConfetti(false);
             return;
         }
 
-        const target = options?.target ?? (areaReal ?? exactValue ?? resultado.areaTotal);
+        const target = options?.target ?? (activeMode ? (areaReal ?? exactValue ?? resultado.areaTotal) : (exactValue ?? resultado.areaTotal));
         const parsedValue = Number(String(nextValue).replace(",", "."));
 
         if (!nextValue.trim()) {
@@ -372,25 +372,25 @@ function App() {
         }
 
         const diff = Math.abs(parsedValue - (target ?? 0));
-        const prompt = "área real";
-        const tolerance = Math.max(0.05, Math.abs(target ?? 0) * 0.05 + 0.05);
+        const prompt = activeMode ? "el área real" : "la integral exacta";
+        const tolerance = Math.max(0.1, Math.abs(target ?? 0) * 0.005 + 0.05);
 
         if (diff <= tolerance) {
             setGuessStatus("success");
-            setGuessFeedback(`¡Acertaste! Tu estimación para ${prompt} fue correcta.`);
+            setGuessFeedback(`¡Acertaste! Tu estimación para ${prompt} fue ${parsedValue.toFixed(4)} y el valor real fue ${Number(target ?? 0).toFixed(4)}.`);
             setShowConfetti(true);
             return;
         }
 
-        if (diff <= tolerance * 2.2) {
+        if (diff <= tolerance * 2.5) {
             setGuessStatus("near");
-            setGuessFeedback(`Cerca. Te faltaron ${diff.toFixed(2)} unidades aprox. para ${prompt}.`);
+            setGuessFeedback(`Estás cerca. Te faltaron ${diff.toFixed(2)} unidades para ${prompt}.`);
             setShowConfetti(false);
             return;
         }
 
         setGuessStatus("far");
-        setGuessFeedback(`Lejos. Te faltaron ${diff.toFixed(2)} unidades aprox. para ${prompt}.`);
+        setGuessFeedback(`Estás lejos. Te faltaron ${diff.toFixed(2)} unidades para ${prompt}.`);
         setShowConfetti(false);
     }
 
@@ -401,7 +401,6 @@ function App() {
 
         const resumen = calcularRiemann(expressionFinal, a, b, n, metodo);
         const exacto = resumen.integral.valor;
-        const targetGuess = guessMode ? (calcularAreaReal(expressionFinal, a, b) ?? exacto ?? resumen.areaTotal) : null;
         setHistory((prev) => [{
             id: Date.now(),
             expresion: expressionFinal,
@@ -417,9 +416,18 @@ function App() {
         setAnimationProgress(0);
         setIsAnimating(true);
         setHasCalculated(true);
-        if (guessMode && guessValue.trim()) {
-            evaluateGuess(guessValue, { enabled: true, target: targetGuess, mode: true });
-        }
+    }
+
+    function handleComprobar() {
+        if (!guessValue.trim()) return;
+
+        const parsed = parseDefiniteIntegral(editFuncion);
+        const expressionFinal = parsed ? normalizarExpresion(parsed.expr) : normalizarExpresion(editFuncion);
+        const exacto = integralInputResult?.valor ?? resultado.integral.valor ?? null;
+        const targetGuess = guessMode
+            ? (calcularAreaReal(expressionFinal, a, b) ?? exacto ?? resultado.areaTotal)
+            : (exacto ?? resultado.areaTotal);
+        evaluateGuess(guessValue, { enabled: true, target: targetGuess, mode: guessMode });
     }
 
     function handleLimpiar() {
@@ -511,7 +519,11 @@ function App() {
 
     function handleGuess(nextValue: string) {
         setGuessValue(nextValue);
-        evaluateGuess(nextValue);
+        if (!hasCalculated || !guessMode) {
+            setGuessFeedback("");
+            setGuessStatus("idle");
+            setShowConfetti(false);
+        }
     }
 
     function niceTickStep(range: number, targetCount = 8) {
@@ -830,11 +842,19 @@ function App() {
                                 ) : null}
                                 <div style={{ fontSize: "0.95rem", color: themeVars.muted, marginBottom: 8 }}>Modo adivina</div>
                                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
-                                    <button onClick={() => setGuessMode(false)} style={{ border: "none", borderRadius: 999, padding: "7px 10px", cursor: "pointer", background: !guessMode ? themeVars.accent : themeVars.chipBg, color: !guessMode ? (theme === "dark" ? "#06202f" : "#f8fafc") : themeVars.text, fontWeight: 700 }}>Integral exacta</button>
-                                    <button onClick={() => setGuessMode(true)} style={{ border: "none", borderRadius: 999, padding: "7px 10px", cursor: "pointer", background: guessMode ? themeVars.accent : themeVars.chipBg, color: guessMode ? (theme === "dark" ? "#06202f" : "#f8fafc") : themeVars.text, fontWeight: 700 }}>Área real</button>
+                                    <button onClick={() => { setGuessMode(false); setGuessFeedback(""); setGuessStatus("idle"); setShowConfetti(false); }} style={{ border: "none", borderRadius: 999, padding: "7px 10px", cursor: "pointer", background: !guessMode ? themeVars.accent : themeVars.chipBg, color: !guessMode ? (theme === "dark" ? "#06202f" : "#f8fafc") : themeVars.text, fontWeight: 700 }}>Integral exacta</button>
+                                    <button onClick={() => { setGuessMode(true); setGuessFeedback(""); setGuessStatus("idle"); setShowConfetti(false); }} style={{ border: "none", borderRadius: 999, padding: "7px 10px", cursor: "pointer", background: guessMode ? themeVars.accent : themeVars.chipBg, color: guessMode ? (theme === "dark" ? "#06202f" : "#f8fafc") : themeVars.text, fontWeight: 700 }}>Área real</button>
                                 </div>
                                 <input value={guessValue} onChange={(e) => handleGuess(e.target.value)} placeholder="Tu estimación" style={{ width: "100%", padding: "8px 10px", borderRadius: 10, border: `1px solid ${guessStatus === "success" ? "rgba(16, 185, 129, 0.45)" : guessStatus === "near" ? "rgba(249, 115, 22, 0.45)" : guessStatus === "far" ? "rgba(239, 68, 68, 0.45)" : themeVars.cardBorder}`, background: themeVars.cardBg, color: themeVars.text, marginBottom: 8 }} />
-                                {guessFeedback ? <div style={{ marginTop: 8, color: guessStatus === "success" ? "#10b981" : guessStatus === "near" ? "#f97316" : guessStatus === "far" ? "#ef4444" : themeVars.text, fontSize: "0.95rem" }}>{guessFeedback}</div> : null}
+                                <button
+                                    onClick={handleComprobar}
+                                    disabled={!guessValue.trim()}
+                                    style={{ width: "100%", padding: "8px 10px", border: "none", borderRadius: 10, background: guessValue.trim() ? themeVars.accent : themeVars.chipBg, color: guessValue.trim() ? (theme === "dark" ? "#06202f" : "#f8fafc") : themeVars.muted, cursor: guessValue.trim() ? "pointer" : "not-allowed", fontWeight: 700, marginBottom: 8 }}
+                                >
+                                    Comprobar
+                                </button>
+                                <div style={{ color: themeVars.muted, fontSize: "0.86rem", marginBottom: 8 }}>Escribe un número y pulsa Comprobar para ver si acertaste o cuántas unidades te faltaron.</div>
+                                {guessFeedback ? <div style={{ marginTop: 8, color: guessStatus === "success" ? "#10b981" : guessStatus === "near" ? "#facc15" : guessStatus === "far" ? "#ef4444" : themeVars.text, fontSize: "0.95rem" }}>{guessFeedback}</div> : null}
                             </div>
                             {!hasCalculated ? (
                                 <div style={{ gridColumn: "1 / -1", background: themeVars.panelBg, border: `1px solid ${themeVars.panelBorder}`, borderRadius: 18, padding: 16, color: themeVars.muted }}>
