@@ -4,11 +4,14 @@ Aplicación interactiva para visualizar la suma de Riemann, comparar métodos de
 
 ## Funcionalidades principales
 
-- Ingreso de funciones en formato amigable como x^2, sin(x), sqrt(x), ln(x), pi o exp(x).
+- Ingreso de funciones en formato amigable como x^2, sin(x), sqrt(x), ln(x), pi o exp(x), incluso en formato de integral definida.
 - Cálculo de la suma de Riemann con métodos izquierdo, derecho y punto medio.
 - Visualización de la curva y los rectángulos sobre el intervalo [a, b].
 - Comparación rápida entre los tres métodos en la misma interfaz.
-- Modo oscuro y claro, animación de rectángulos, exportación PNG/PDF y modo adivina.
+- Resultados ocultos hasta pulsar Calcular para mantener la experiencia más interactiva y sin spoilers.
+- Resumen conceptual del proceso, guía rápida de uso y mensajes de validación.
+- Modo oscuro y claro, animación de rectángulos, exportación PNG/PDF, modo adivina y historial de cálculos.
+- Comparador en tiempo real, convergencia del error frente a n y cálculo del área real con |f(x)|.
 
 ## Cómo usarla
 

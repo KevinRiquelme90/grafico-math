@@ -241,6 +241,7 @@ function App() {
     const exactValue = integralInputResult?.valor ?? resultado.integral.valor ?? null;
     const errorAbsoluto = exactValue != null ? Math.abs(resultado.areaTotal - exactValue) : null;
     const errorRelativo = errorAbsoluto != null && exactValue != null && exactValue !== 0 ? (errorAbsoluto / Math.abs(exactValue)) * 100 : null;
+    const metodoLabel = metodo === "inferior" ? "Izquierdo" : metodo === "superior" ? "Derecho" : "Punto medio";
     const dataConvergencia = useMemo(() => {
         const valores = [5, 10, 20, 40, 80, 160];
         return valores.map((valorN) => {
@@ -716,7 +717,15 @@ function App() {
                             ))}
                         </div>
 
-                        <div style={{ borderTop: `1px solid ${themeVars.panelBorder}`, marginTop: 14, paddingTop: 14 }}>
+                        <div style={{ borderTop: `1px solid ${themeVars.panelBorder}`, marginTop: 14, paddingTop: 14, display: "grid", gap: 10 }}>
+                            <div style={{ background: themeVars.cardBg, border: `1px solid ${themeVars.cardBorder}`, borderRadius: 14, padding: "10px 12px" }}>
+                                <div style={{ color: themeVars.muted, fontSize: "0.9rem", marginBottom: 6 }}>Guía rápida</div>
+                                <div style={{ color: themeVars.text, fontSize: "0.95rem", display: "grid", gap: 6 }}>
+                                    <div>1. Elige una función y ajusta el intervalo [a, b].</div>
+                                    <div>2. Modifica n para ver cómo cambia la aproximación.</div>
+                                    <div>3. Pulsa Calcular para revelar los resultados y el modo adivina.</div>
+                                </div>
+                            </div>
                             <div style={{ background: themeVars.cardBg, border: `1px solid ${themeVars.cardBorder}`, borderRadius: 14, padding: "10px 12px" }}>
                                 <div style={{ color: themeVars.muted, fontSize: "0.9rem", marginBottom: 6 }}>Resultados</div>
                                 <div style={{ color: themeVars.text, fontSize: "0.95rem" }}>Pulsa Calcular para revelar Δx, la suma de rectángulos, la integral exacta, comparaciones y el resto de herramientas.</div>
@@ -833,6 +842,23 @@ function App() {
                                 </div>
                             ) : (
                                 <>
+                                    <div style={{ gridColumn: "1 / -1", background: themeVars.panelBg, border: `1px solid ${themeVars.panelBorder}`, borderRadius: 18, padding: 14 }}>
+                                        <div style={{ fontSize: "0.95rem", color: themeVars.muted, marginBottom: 8 }}>Resumen conceptual</div>
+                                        <div style={{ display: "grid", gap: 8, gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
+                                            <div style={{ borderRadius: 12, border: `1px solid ${themeVars.panelBorder}`, background: themeVars.cardBg, padding: "10px 12px" }}>
+                                                <div style={{ color: themeVars.muted, fontSize: "0.9rem", marginBottom: 4 }}>Fórmula de Δx</div>
+                                                <div style={{ color: themeVars.text, fontWeight: 700 }}>Δx = (b - a) / n = {resultado.dx.toFixed(4)}</div>
+                                            </div>
+                                            <div style={{ borderRadius: 12, border: `1px solid ${themeVars.panelBorder}`, background: themeVars.cardBg, padding: "10px 12px" }}>
+                                                <div style={{ color: themeVars.muted, fontSize: "0.9rem", marginBottom: 4 }}>Método activo</div>
+                                                <div style={{ color: themeVars.text, fontWeight: 700 }}>{metodoLabel}</div>
+                                            </div>
+                                            <div style={{ borderRadius: 12, border: `1px solid ${themeVars.panelBorder}`, background: themeVars.cardBg, padding: "10px 12px" }}>
+                                                <div style={{ color: themeVars.muted, fontSize: "0.9rem", marginBottom: 4 }}>Idea clave</div>
+                                                <div style={{ color: themeVars.text, fontWeight: 700 }}>Mientras más rectángulos haya, la aproximación se acerca más a la integral.</div>
+                                            </div>
+                                        </div>
+                                    </div>
                                     <div style={{ background: themeVars.panelBg, border: `1px solid ${themeVars.panelBorder}`, borderRadius: 18, padding: 14 }}>
                                         <div style={{ fontSize: "0.95rem", color: themeVars.muted, marginBottom: 8 }}>Δx</div>
                                         <div style={{ fontSize: "1.08rem", fontWeight: 800, color: themeVars.text }}>{resultado.dx.toFixed(6)}</div>
