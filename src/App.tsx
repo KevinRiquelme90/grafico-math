@@ -8,7 +8,20 @@ import { calcularRiemann, generarRectangulos, calcularIntegralExacta, calcularAr
 
 const Plot = createPlotlyComponent(Plotly);
 
-// Estas funciones ayudan a que la expresión escrita por el usuario se vea más clara en la interfaz.
+/**
+ * Convierte una expresión matemática a un formato visual agradable
+ * para mostrar en la interfaz de usuario.
+ * 
+ * Transforma:
+ * - 'pi' → 'π'
+ * - 'exp(x)' → 'e^(x)'
+ * - 'log(x)' → 'ln(x)'
+ * - '^2' → '²' y '^3' → '³'
+ * - 'sqrt(x)' → '√(x)'
+ * 
+ * @param input - Expresión ingresada por el usuario
+ * @returns Expresión formateada visualmente
+ */
 function formatearExpresionParaUI(input: string): string {
     let expr = (input ?? "").trim();
     if (!expr) return "f(x)";
@@ -22,6 +35,13 @@ function formatearExpresionParaUI(input: string): string {
     return expr;
 }
 
+/**
+ * Normaliza una expresión ingresada por el usuario para el cálculo
+ * Convierte símbolos especiales y agrega operadores faltantes.
+ * 
+ * @param input - Expresión del usuario
+ * @returns Expresión normalizada lista para cálculo
+ */
 function normalizarExpresion(input: string): string {
     let expr = (input ?? "").trim();
     if (!expr) return "x";
@@ -41,6 +61,16 @@ function normalizarExpresion(input: string): string {
     return expr;
 }
 
+/**
+ * Analiza una entrada de integral definida en notación LaTeX o Unicode
+ * 
+ * Soporta formatos como:
+ * - \int_{0}^{2} x^2 dx
+ * - ∫_0^2 x^2 dx
+ * 
+ * @param input - Entrada potencial en forma de integral
+ * @returns Objeto con límites (a, b), expresión y variable, o null si no coincide
+ */
 function parseDefiniteIntegral(input: string): { a: number; b: number; expr: string; var: string; raw: string } | null {
     if (!input) return null;
     const s = input.replace(/\s+/g, " ");
@@ -57,6 +87,16 @@ function parseDefiniteIntegral(input: string): { a: number; b: number; expr: str
     return { a: aNum, b: bNum, expr: m[3].trim(), var: m[4], raw: input };
 }
 
+/**
+ * Integra numéricamente usando la regla de Simpson
+ * Usado como fallback cuando la integral exacta no está disponible
+ * 
+ * @param expr - Expresión a integrar
+ * @param aNum - Límite inferior
+ * @param bNum - Límite superior
+ * @param variable - Variable de integración (típicamente 'x')
+ * @returns Valor numérico aproximado de la integral
+ */
 function numericIntegrate(expr: string, aNum: number, bNum: number, variable: string) {
     const steps = 800;
     const h = (bNum - aNum) / steps;
@@ -81,6 +121,19 @@ function numericIntegrate(expr: string, aNum: number, bNum: number, variable: st
 }
 
 function App() {
+    /**
+     * COMPONENTE PRINCIPAL DE LA APLICACIÓN
+     * 
+     * Este componente React gestiona:
+     * - Entrada de funciones matemáticas
+     * - Cálculo de sumas de Riemann en tres métodos
+     * - Visualización interactiva de gráficas y rectángulos
+     * - Comparación de métodos
+     * - Modo oscuro/claro
+     * - Exportación de gráficas (PNG/PDF)
+     * - Historial de cálculos
+     * - Modo adivinanza interactivo
+     */
     const [funcion, setFuncion] = useState("x^2");
     const [editFuncion, setEditFuncion] = useState("x^2");
     const [a, setA] = useState(0);
@@ -89,11 +142,19 @@ function App() {
     const [metodo, setMetodo] = useState<MetodoRectangulos>("medio");
     const [vista, setVista] = useState<VistaRectangulos>("todos");
     const [theme, setTheme] = useState<"dark" | "light">("dark");
+    
+    // Estado para integración directa (cuando el usuario escribe ∫...)
     const [integralInputResult, setIntegralInputResult] = useState<{ expresion?: string; valor?: number | null } | null>(null);
-    const [layoutOverride, setLayoutOverride] = useState<Record<string, any>>({});
+    
+    // Estado para animaciones y visualización
+    const [layoutOverride, setLayoutOverride] = useState<Record<string, Record<string, number | string | number[]> | undefined>>({});
     const [animationProgress, setAnimationProgress] = useState(0);
     const [isAnimating, setIsAnimating] = useState(false);
+    
+    // Estado para historial de cálculos
     const [history, setHistory] = useState<Array<{ id: number; expresion: string; area: number; exacta: number | null; tiempo: string; n: number; metodo: MetodoRectangulos }>>([]);
+    
+    // Estado para comparación y modo adivinanza
     const [comparisonN, setComparisonN] = useState(10);
     const [guessMode, setGuessMode] = useState(false);
     const [guessValue, setGuessValue] = useState("");
@@ -101,8 +162,10 @@ function App() {
     const [guessStatus, setGuessStatus] = useState<"idle" | "success" | "near" | "far">("idle");
     const [showConfetti, setShowConfetti] = useState(false);
     const [hasCalculated, setHasCalculated] = useState(false);
+    
+    // Referencias a elementos del DOM
     const inputRef = useRef<HTMLInputElement | null>(null);
-    const plotRef = useRef<any>(null);
+    const plotRef = useRef<HTMLDivElement>(null);
     const plotContainerRef = useRef<HTMLDivElement | null>(null);
 
     const opcionesVista: Array<{ value: VistaRectangulos; label: string; color: string }> = [
@@ -322,7 +385,11 @@ function App() {
                 margin: { l: 56, r: 20, t: 10, b: 50 },
                 paper_bgcolor: themeVars.cardBg,
                 plot_bgcolor: themeVars.cardBg,
-                shapes: rectangulosVisibles.map((shape) => ({ ...shape, line: { ...(shape as any).line, color: (shape as any).fillcolor ?? "rgba(15,23,42,0.95)" }, layer: "below" })),
+                shapes: rectangulosVisibles.map((shape) => {
+                    const typedShape = shape as Record<string, unknown>;
+                    const typedLine = typedShape.line as Record<string, unknown> | undefined;
+                    return { ...shape, line: { ...typedLine, color: typedShape.fillcolor ?? "rgba(15,23,42,0.95)" }, layer: "below" };
+                }),
                 xaxis: {
                     title: "Eje X",
                     zeroline: true,
@@ -402,6 +469,16 @@ function App() {
     }
 
     // Este botón toma la función actual, prepara los datos y empieza la animación del gráfico.
+    /**
+     * Maneja el cálculo cuando el usuario presiona "Calcular"
+     * 
+     * Pasos:
+     * 1. Intenta parsear una integral definida (∫...dx)
+     * 2. Normaliza la expresión para cálculo
+     * 3. Calcula la suma de Riemann
+     * 4. Guarda en el historial
+     * 5. Inicia animación
+     */
     function handleCalcular() {
         const parsed = parseDefiniteIntegral(editFuncion);
         const expressionFinal = parsed ? normalizarExpresion(parsed.expr) : normalizarExpresion(editFuncion);
@@ -426,6 +503,10 @@ function App() {
         setHasCalculated(true);
     }
 
+    /**
+     * Verifica la adivinanza del usuario en modo adivinanza
+     * Compara el valor ingresado con la integral exacta o área real
+     */
     function handleComprobar() {
         if (!guessValue.trim()) return;
 
@@ -438,6 +519,10 @@ function App() {
         evaluateGuess(guessValue, { enabled: true, target: targetGuess, mode: guessMode });
     }
 
+    /**
+     * Reinicia todos los valores a sus valores por defecto
+     * Limpia la interfaz para un nuevo cálculo
+     */
     function handleLimpiar() {
         setEditFuncion("x^2");
         setFuncion("x^2");
@@ -458,7 +543,14 @@ function App() {
         setHasCalculated(false);
     }
 
-    // Permite guardar una imagen o un PDF del gráfico para compartirlo o conservarlo.
+    /**
+     * Exporta el gráfico en PNG o PDF
+     * 
+     * - PDF: Captura el contenedor y crea un documento PDF
+     * - PNG: Usa Plotly para generar una imagen de alta resolución
+     * 
+     * @param format - Formato de exportación: 'png' o 'pdf'
+     */
     async function handleExport(format: "png" | "pdf") {
         if (format === "pdf") {
             const pdf = new jsPDF("landscape", "pt", "a4");
@@ -505,7 +597,7 @@ function App() {
         document.body.appendChild(exportDiv);
 
         try {
-            await Plotly.newPlot(exportDiv, figure.data as any, figure.layout as any, figure.config as any);
+            await Plotly.newPlot(exportDiv, figure.data as unknown, figure.layout as unknown, figure.config as unknown);
             await new Promise((resolve) => window.setTimeout(resolve, 220));
             const dataUrl = await Plotly.toImage(exportDiv, { format, width, height, scale: 2 });
             const link = document.createElement("a");
@@ -526,6 +618,12 @@ function App() {
         }
     }
 
+    /**
+     * Actualiza el valor de la adivinanza del usuario
+     * Solo procesa si estamos en modo adivinanza y se ha calculado
+     * 
+     * @param nextValue - Nuevo valor ingresado por el usuario
+     */
     function handleGuess(nextValue: string) {
         setGuessValue(nextValue);
         if (!hasCalculated || !guessMode) {
@@ -535,6 +633,14 @@ function App() {
         }
     }
 
+    /**
+     * Calcula un intervalo "bonito" para los ticks del eje
+     * Usa potencias de 10 para que los números sean redondos y legibles
+     * 
+     * @param range - Rango total a cubrir
+     * @param targetCount - Número aproximado de ticks deseados
+     * @returns Un intervalo apropiado para los ticks
+     */
     function niceTickStep(range: number, targetCount = 8) {
         const raw = range / targetCount;
         const pow = Math.pow(10, Math.floor(Math.log10(raw)));
@@ -549,7 +655,13 @@ function App() {
         return best;
     }
 
-    function handleRelayout(relayoutData: Record<string, any>) {
+    /**
+     * Maneja el evento de relayout (zoom, pan) en el gráfico
+     * Actualiza los límites de los ejes para un zoom interactivo
+     * 
+     * @param relayoutData - Datos del evento relayout de Plotly
+     */
+    function handleRelayout(relayoutData: Record<string, unknown>) {
         let x0: number | null = null;
         let x1: number | null = null;
         let y0: number | null = null;
@@ -571,7 +683,7 @@ function App() {
             y1 = Number(relayoutData["yaxis.range"][1]);
         }
 
-        const newOverride: Record<string, any> = { ...layoutOverride };
+        const newOverride: Record<string, Record<string, number | string | number[]> | undefined> = { ...layoutOverride };
         if (x0 !== null && x1 !== null && Number.isFinite(x0) && Number.isFinite(x1)) {
             const range = Math.abs(x1 - x0);
             const step = niceTickStep(range, 8);
@@ -795,7 +907,11 @@ function App() {
                                     margin: { l: 56, r: 20, t: 10, b: 50 },
                                     paper_bgcolor: themeVars.cardBg,
                                     plot_bgcolor: themeVars.cardBg,
-                                    shapes: rectangulosVisibles.map((shape) => ({ ...shape, line: { ...(shape as any).line, color: (shape as any).fillcolor ?? "rgba(15,23,42,0.95)" }, layer: "below" })),
+                                    shapes: rectangulosVisibles.map((shape) => {
+                                        const typedShape = shape as Record<string, unknown>;
+                                        const typedLine = typedShape.line as Record<string, unknown> | undefined;
+                                        return { ...shape, line: { ...typedLine, color: typedShape.fillcolor ?? "rgba(15,23,42,0.95)" }, layer: "below" };
+                                    }),
                                     xaxis: {
                                         title: "Eje X",
                                         zeroline: true,
@@ -842,8 +958,8 @@ function App() {
                                                     background: piece.color,
                                                     animation: "guessBurst 0.9s ease-out forwards",
                                                     opacity: 0.95,
-                                                    ["--dx" as any]: `${piece.dx}px`,
-                                                    ["--dy" as any]: `${piece.dy}px`
+                                                    ["--dx"]: `${piece.dx}px`,
+                                                    ["--dy"]: `${piece.dy}px`
                                                 }}
                                             />
                                         ))}

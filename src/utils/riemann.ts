@@ -1,49 +1,95 @@
+/**
+ * Módulo de cálculo de sumas de Riemann
+ * 
+ * Este módulo contiene todas las funciones necesarias para:
+ * - Evaluar funciones matemáticas en puntos específicos
+ * - Calcular sumas de Riemann usando diferentes métodos
+ * - Generar visualizaciones de rectángulos
+ * - Integrar numéricamente y encontrar integrales exactas
+ */
+
 import { evaluate, parse, simplify } from "mathjs";
 
+/** Tipos de métodos para calcular la suma de Riemann */
 export type MetodoRectangulos = "inferior" | "superior" | "medio";
+
+/** Tipos de vistas para mostrar diferentes rectángulos en la gráfica */
 export type VistaRectangulos = "todos" | "inferiores" | "superiores" | "medios";
 
+/** Tipos de vistas para mostrar diferentes rectángulos en la gráfica */
+export type VistaRectangulos = "todos" | "inferiores" | "superiores" | "medios";
+
+/**
+ * Representa un rectángulo en la gráfica
+ * Se usa para la visualización de la suma de Riemann en Plotly
+ */
 export type Rectangulo = {
     type: "rect";
-    x0: number;
-    x1: number;
-    y0: number;
-    y1: number;
-    line?: { width: number };
-    fillcolor?: string;
+    x0: number;  // Coordenada x inicial
+    x1: number;  // Coordenada x final
+    y0: number;  // Coordenada y inicial (puede ser 0 o altura)
+    y1: number;  // Coordenada y final (puede ser altura o 0)
+    line?: { width: number };  // Ancho de la línea del borde
+    fillcolor?: string;  // Color de relleno del rectángulo
 };
 
+/**
+ * Representa un punto de la suma de Riemann
+ * Contiene información sobre la altura y área de un rectángulo individual
+ */
 export interface PuntoRiemann {
-    intervalo: number;
-    x: number;
-    altura: number;
-    ancho: number;
-    area: number;
-    metodo: MetodoRectangulos;
+    intervalo: number;  // Número del intervalo (1, 2, 3, ...)
+    x: number;  // Coordenada x donde se evaluó
+    altura: number;  // Altura del rectángulo (valor de f(x))
+    ancho: number;  // Ancho del intervalo (dx)
+    area: number;  // Área del rectángulo (altura * ancho)
+    metodo: MetodoRectangulos;  // Método usado (inferior, superior, medio)
 }
 
+/**
+ * Resultado de calcular la integral de forma exacta o numérica
+ */
 export interface IntegralExacta {
-    disponible: boolean;
-    expresion: string;
-    valor: number | null;
+    disponible: boolean;  // Si se logró calcular la integral
+    expresion: string;  // Descripción o fórmula de la integral
+    valor: number | null;  // Valor numérico de la integral
 }
 
+/**
+ * Resultado completo de calcular una suma de Riemann
+ */
 export interface ResultadoRiemann {
-    dx: number;
-    areaTotal: number;
-    puntos: PuntoRiemann[];
-    metodo: MetodoRectangulos;
-    integral: IntegralExacta;
+    dx: number;  // Ancho de cada intervalo
+    areaTotal: number;  // Suma total de todas las áreas de los rectángulos
+    puntos: PuntoRiemann[];  // Detalles de cada rectángulo
+    metodo: MetodoRectangulos;  // Método usado
+    integral: IntegralExacta;  // Integral exacta para comparación
 }
 
+/**
+ * Verifica si un nodo del árbol sintáctico es una constante
+ * @param node - Nodo a verificar
+ * @returns true si es una constante numérica
+ */
 function isConstantNode(node: unknown): node is { type: string; value: number } {
     return typeof node === "object" && node !== null && "type" in node && (node as { type?: string }).type === "ConstantNode";
 }
 
+/**
+ * Verifica si un nodo del árbol sintáctico es una variable (típicamente 'x')
+ * @param node - Nodo a verificar
+ * @param nombre - Nombre de la variable a buscar (por defecto 'x')
+ * @returns true si es la variable especificada
+ */
 function isVariableNode(node: unknown, nombre = "x") {
     return typeof node === "object" && node !== null && "type" in node && (node as { type?: string }).type === "SymbolNode" && "name" in node && (node as { name?: string }).name === nombre;
 }
 
+/**
+ * Normaliza una expresión matemática simplificándola
+ * @param expresion - Expresión a normalizar
+ * @returns Expresión simplificada o la original si hay error
+ */
 function normalizarExpresion(expresion: string) {
     try {
         const parsed = parse(expresion);
@@ -54,7 +100,20 @@ function normalizarExpresion(expresion: string) {
     }
 }
 
-// Ayuda a convertir la expresión a un formato que mathjs pueda leer de manera más fiable.
+/**
+ * Convierte una expresión ingresada por el usuario a un formato que MathJS pueda procesar
+ * 
+ * Realiza las siguientes transformaciones:
+ * - Reemplaza π por 'pi'
+ * - Reemplaza √ por 'sqrt'
+ * - Convierte 'sen' a 'sin'
+ * - Convierte 'ln' a 'log'
+ * - Agrega operadores multiplicación donde falta (ej: 2x -> 2*x)
+ * - Interpreta potencias (ej: x2 -> x^2)
+ * 
+ * @param expresion - Expresión ingresada por el usuario
+ * @returns Expresión normalizada lista para evaluar
+ */
 function normalizarTextoFuncion(expresion: string): string {
     let texto = expresion.trim();
     if (!texto) return "x";
@@ -77,7 +136,16 @@ function normalizarTextoFuncion(expresion: string): string {
     return texto;
 }
 
-// Evalúa la función en un punto concreto, incluso si tiene formas especiales como funciones por partes.
+/**
+ * Evalúa una función en un punto específico
+ * 
+ * Soporta funciones por partes y maneja errores con gracia.
+ * Si la evaluación falla, retorna null en lugar de lanzar error.
+ * 
+ * @param expresion - Expresión a evaluar (ya normalizada)
+ * @param x - Valor de x para la evaluación
+ * @returns Valor de f(x) o null si no se puede evaluar
+ */
 function evaluarConSoporte(expresion: string, x: number): number | null {
     const texto = normalizarTextoFuncion(expresion);
     if (!texto) return null;
@@ -113,6 +181,17 @@ function evaluarConSoporte(expresion: string, x: number): number | null {
     }
 }
 
+/**
+ * Integra numéricamente usando el método de Simpson
+ * 
+ * El método de Simpson es más preciso que trapezoidal y aproxima
+ * la integral usando parábolas. Usa 2000 pasos para buena precisión.
+ * 
+ * @param expresion - Función a integrar
+ * @param a - Límite inferior
+ * @param b - Límite superior
+ * @returns Valor de la integral o null si no se puede calcular
+ */
 function integrarNumericamente(expresion: string, a: number, b: number): number | null {
     if (!Number.isFinite(a) || !Number.isFinite(b) || a >= b) {
         return null;
@@ -141,6 +220,11 @@ function integrarNumericamente(expresion: string, a: number, b: number): number 
     return (h / 3) * sum;
 }
 
+/**
+ * Valida que una función tenga sintaxis correcta
+ * @param funcion - Expresión a validar
+ * @returns Objeto con validez y mensaje de error (si aplica)
+ */
 export function validarFuncion(funcion: string): { valida: boolean; mensaje?: string } {
     if (!funcion.trim()) {
         return { valida: false, mensaje: 'Escribe una función.' };
@@ -154,6 +238,19 @@ export function validarFuncion(funcion: string): { valida: boolean; mensaje?: st
     }
 }
 
+/**
+ * Calcula recursivamente la antiderivada de una expresión
+ * 
+ * Implementa reglas básicas de integración:
+ * - Constantes: ∫c dx = cx
+ * - Potencias: ∫x^n dx = x^(n+1)/(n+1)
+ * - Suma/resta: ∫(f+g) dx = ∫f dx + ∫g dx
+ * - Funciones trigonométricas: ∫sin(x) dx = -cos(x), etc.
+ * - Exponencial: ∫e^x dx = e^x
+ * 
+ * @param node - Nodo del árbol sintáctico a integrar
+ * @returns Objeto con éxito y expresión resultante o vacío si falla
+ */
 function integrarNodo(node: unknown): { ok: boolean; expresion: string } {
     if (typeof node !== "object" || node === null || !("type" in node)) {
         return { ok: false, expresion: "" };
@@ -270,10 +367,29 @@ function integrarNodo(node: unknown): { ok: boolean; expresion: string } {
     return { ok: false, expresion: "" };
 }
 
+/**
+ * Evalúa una función en un punto específico
+ * Función pública que usa evaluarConSoporte internamente
+ * 
+ * @param funcion - Expresión de la función
+ * @param x - Punto en el que evaluar
+ * @returns Valor de f(x) o null si hay error
+ */
 export function evaluarFuncion(funcion: string, x: number): number | null {
     return evaluarConSoporte(funcion, x);
 }
 
+/**
+ * Calcula el área real (valor absoluto) bajo la curva
+ * 
+ * Integra el valor absoluto de la función para obtener el área
+ * sin importar si hay valores negativos.
+ * 
+ * @param funcion - Expresión de la función
+ * @param a - Límite inferior del intervalo
+ * @param b - Límite superior del intervalo
+ * @returns Área real (siempre positivo) o null si no se puede calcular
+ */
 export function calcularAreaReal(funcion: string, a: number, b: number): number | null {
     if (!Number.isFinite(a) || !Number.isFinite(b) || a >= b) {
         return null;
@@ -282,7 +398,24 @@ export function calcularAreaReal(funcion: string, a: number, b: number): number 
     return integrarNumericamente(`abs(${normalizarTextoFuncion(funcion)})`, a, b);
 }
 
-// Calcula el área aproximada usando rectángulos, según el método elegido por el usuario.
+/**
+ * Calcula la suma de Riemann aproximando el área bajo una curva
+ * 
+ * Divide el intervalo [a, b] en n rectángulos y calcula el área aproximada
+ * usando el método especificado (inferior, superior o punto medio).
+ * 
+ * Métodos:
+ * - inferior: altura evaluada en el extremo izquierdo de cada intervalo
+ * - superior: altura evaluada en el extremo derecho de cada intervalo
+ * - medio: altura evaluada en el punto medio de cada intervalo
+ * 
+ * @param funcion - Expresión de la función
+ * @param a - Límite inferior del intervalo
+ * @param b - Límite superior del intervalo
+ * @param n - Número de rectángulos
+ * @param metodo - Tipo de suma de Riemann (por defecto 'inferior')
+ * @returns Objeto con resultados: área, puntos de cada rectángulo, integral exacta, etc.
+ */
 export function calcularRiemann(
     funcion: string,
     a: number,
@@ -328,7 +461,21 @@ export function calcularRiemann(
     };
 }
 
-// Intenta encontrar una respuesta exacta con reglas matemáticas; si no puede, usa una aproximación numérica.
+/**
+ * Calcula la integral exacta de una función usando el Teorema Fundamental del Cálculo
+ * 
+ * Intenta usar reglas analíticas de integración. Si eso falla, usa integración numérica.
+ * 
+ * Proceso:
+ * 1. Intenta calcular la antiderivada usando integrarNodo()
+ * 2. Si funciona, evalúa en los límites: F(b) - F(a)
+ * 3. Si falla, usa el método de Simpson para aproximación numérica
+ * 
+ * @param funcion - Expresión de la función
+ * @param a - Límite inferior
+ * @param b - Límite superior
+ * @returns Objeto con disponibilidad, expresión de la integral y su valor
+ */
 export function calcularIntegralExacta(funcion: string, a: number, b: number): IntegralExacta {
     try {
         const expr = parse(funcion);
@@ -380,7 +527,20 @@ export function calcularIntegralExacta(funcion: string, a: number, b: number): I
     }
 }
 
-// Crea los rectángulos que se muestran en el gráfico para representar la suma de Riemann.
+/**
+ * Genera los rectángulos para visualizar en la gráfica
+ * 
+ * Crea un array de objetos Rectangulo que Plotly puede renderizar.
+ * Los rectángulos se colorean en rojo si f(x) es negativa.
+ * 
+ * @param funcion - Expresión de la función
+ * @param a - Límite inferior
+ * @param b - Límite superior
+ * @param n - Número de rectángulos
+ * @param metodo - Método de evaluación (inferior, superior, medio)
+ * @param color - Color hexadecimal para los rectángulos (por defecto azul)
+ * @returns Array de rectángulos listos para Plotly
+ */
 export function generarRectangulos(
     funcion: string,
     a: number,
