@@ -1,10 +1,10 @@
 ﻿import { useEffect, useMemo, useRef, useState } from "react";
 import createPlotlyComponent from "react-plotly.js/factory";
 import Plotly from "plotly.js-dist-min";
-import { evaluate, parse } from "mathjs";
+import { evaluate } from "mathjs";
 import { jsPDF } from "jspdf";
 import html2canvas from "html2canvas";
-import { calcularRiemann, generarRectangulos, calcularIntegralExacta, calcularAreaReal, type MetodoRectangulos, type VistaRectangulos } from "./utils/riemann";
+import { calcularRiemann, generarRectangulos, calcularIntegralExacta, calcularAreaReal, validarFuncion, type MetodoRectangulos, type VistaRectangulos } from "./utils/riemann";
 
 const Plot = createPlotlyComponent(Plotly);
 
@@ -12,8 +12,9 @@ function formatearExpresionParaUI(input: string): string {
     let expr = (input ?? "").trim();
     if (!expr) return "f(x)";
     expr = expr.replace(/\bpi\b/gi, "π");
-    expr = expr.replace(/\blog\(/gi, "ln(");
     expr = expr.replace(/\bexp\(([^)]+)\)/gi, "e^($1)");
+    expr = expr.replace(/\blog\(/gi, "ln(");
+    expr = expr.replace(/\bsin\(/gi, "sin(");
     expr = expr.replace(/sqrt\(([^)]+)\)/gi, "√($1)");
     expr = expr.replace(/\^2/g, "²");
     expr = expr.replace(/\^3/g, "³");
@@ -29,6 +30,7 @@ function normalizarExpresion(input: string): string {
     expr = expr.replace(/√/g, "sqrt");
     expr = expr.replace(/\bsen\s*\(/gi, "sin(");
     expr = expr.replace(/\bln\s*\(/gi, "log(");
+    expr = expr.replace(/\bexp\b/gi, "exp");
     expr = expr.replace(/\bex\b/gi, "exp(x)");
     expr = expr.replace(/\|([^|]+)\|/g, "abs($1)");
     expr = expr.replace(/([0-9])\s*([xX])/g, "$1*$2");
@@ -195,10 +197,9 @@ function App() {
             errors.push("La cantidad de subintervalos debe ser un entero positivo.");
         }
 
-        try {
-            parse(funcion);
-        } catch {
-            errors.push("La sintaxis de la función es inválida. Revisa los operadores y paréntesis.");
+        const funcionValida = validarFuncion(funcion);
+        if (!funcionValida.valida) {
+            errors.push(funcionValida.mensaje ?? "La sintaxis de la función es inválida. Revisa los operadores y paréntesis.");
         }
 
         if (errors.length === 0) {
@@ -220,10 +221,13 @@ function App() {
                 }
             }
             if (hayNoEvaluables) {
-                warnings.push("La función no se puede evaluar en algunos puntos del intervalo.");
+                warnings.push("La función no se puede evaluar en algunos puntos del intervalo. El resultado puede ser parcial o no representar el comportamiento real.");
             }
             if (hayNegativos) {
                 warnings.push("La función toma valores negativos en el intervalo. La integral no representa el área geométrica en este caso.");
+            }
+            if (!hayNoEvaluables && !hayNegativos) {
+                warnings.push("La función parece evaluable en el intervalo y la aproximación se calculará con normalidad.");
             }
         }
 

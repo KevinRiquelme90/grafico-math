@@ -54,8 +54,31 @@ function normalizarExpresion(expresion: string) {
     }
 }
 
+function normalizarTextoFuncion(expresion: string): string {
+    let texto = expresion.trim();
+    if (!texto) return "x";
+
+    texto = texto.replace(/\s+/g, " ");
+    texto = texto.replace(/π/g, "pi");
+    texto = texto.replace(/√/g, "sqrt");
+    texto = texto.replace(/\bsen\s*\(/gi, "sin(");
+    texto = texto.replace(/\bcos\s*\(/gi, "cos(");
+    texto = texto.replace(/\btan\s*\(/gi, "tan(");
+    texto = texto.replace(/\bln\s*\(/gi, "log(");
+    texto = texto.replace(/\blog\s*\(/gi, "log(");
+    texto = texto.replace(/\bexp\s*\(/gi, "exp(");
+    texto = texto.replace(/\babs\s*\(/gi, "abs(");
+    texto = texto.replace(/([0-9])\s*([xX])/g, "$1*$2");
+    texto = texto.replace(/([xX])\s*(\d+)/g, "$1^$2");
+    texto = texto.replace(/(\d+)\s*\(/g, "$1*(");
+    texto = texto.replace(/\)\s*\(/g, ")*(");
+
+    return texto;
+}
+
 function evaluarConSoporte(expresion: string, x: number): number | null {
-    const texto = expresion.trim();
+    const texto = normalizarTextoFuncion(expresion);
+    if (!texto) return null;
     const match = texto.match(/^piecewise\((.*)\)$/i);
     if (match) {
         const contenido = match[1];
@@ -85,6 +108,47 @@ function evaluarConSoporte(expresion: string, x: number): number | null {
         return Number.isFinite(valor) ? valor : null;
     } catch {
         return null;
+    }
+}
+
+function integrarNumericamente(expresion: string, a: number, b: number): number | null {
+    if (!Number.isFinite(a) || !Number.isFinite(b) || a >= b) {
+        return null;
+    }
+
+    const pasos = 2000;
+    const h = (b - a) / pasos;
+    let sum = 0;
+
+    for (let i = 0; i <= pasos; i++) {
+        const xval = a + i * h;
+        const valor = evaluarConSoporte(expresion, xval);
+        if (valor == null) {
+            return null;
+        }
+
+        if (i === 0 || i === pasos) {
+            sum += valor;
+        } else if (i % 2 === 0) {
+            sum += 2 * valor;
+        } else {
+            sum += 4 * valor;
+        }
+    }
+
+    return (h / 3) * sum;
+}
+
+export function validarFuncion(funcion: string): { valida: boolean; mensaje?: string } {
+    if (!funcion.trim()) {
+        return { valida: false, mensaje: 'Escribe una función.' };
+    }
+
+    try {
+        parse(funcion);
+        return { valida: true };
+    } catch {
+        return { valida: false, mensaje: 'La sintaxis de la función es inválida.' };
     }
 }
 
@@ -213,29 +277,7 @@ export function calcularAreaReal(funcion: string, a: number, b: number): number 
         return null;
     }
 
-    const steps = 800;
-    const h = (b - a) / steps;
-    let sum = 0;
-
-    for (let i = 0; i <= steps; i++) {
-        const xval = a + i * h;
-        const valor = evaluarFuncion(funcion, xval);
-        const absValor = valor == null ? null : Math.abs(valor);
-
-        if (absValor == null) {
-            continue;
-        }
-
-        if (i === 0 || i === steps) {
-            sum += absValor;
-        } else if (i % 2 === 0) {
-            sum += 2 * absValor;
-        } else {
-            sum += 4 * absValor;
-        }
-    }
-
-    return (h / 3) * sum;
+    return integrarNumericamente(`abs(${normalizarTextoFuncion(funcion)})`, a, b);
 }
 
 export function calcularRiemann(
@@ -288,32 +330,44 @@ export function calcularIntegralExacta(funcion: string, a: number, b: number): I
         const expr = parse(funcion);
         const antiderivada = integrarNodo(expr);
 
-        if (!antiderivada.ok) {
-            return {
-                disponible: false,
-                expresion: "No disponible",
-                valor: null
-            };
+        if (antiderivada.ok) {
+            const expresionSimplificada = normalizarExpresion(antiderivada.expresion);
+            const valor = evaluate(expresionSimplificada, { x: b }) - evaluate(expresionSimplificada, { x: a });
+            const numero = Number(valor);
+
+            if (Number.isFinite(numero)) {
+                return {
+                    disponible: true,
+                    expresion: expresionSimplificada,
+                    valor: numero
+                };
+            }
         }
 
-        const expresionSimplificada = normalizarExpresion(antiderivada.expresion);
-        const valor = evaluate(expresionSimplificada, { x: b }) - evaluate(expresionSimplificada, { x: a });
-        const numero = Number(valor);
-
-        if (!Number.isFinite(numero)) {
+        const valorNumerico = integrarNumericamente(funcion, a, b);
+        if (valorNumerico != null) {
             return {
-                disponible: false,
-                expresion: "No disponible",
-                valor: null
+                disponible: true,
+                expresion: "Integral numérica (método de Simpson)",
+                valor: valorNumerico
             };
         }
 
         return {
-            disponible: true,
-            expresion: expresionSimplificada,
-            valor: numero
+            disponible: false,
+            expresion: "No disponible",
+            valor: null
         };
     } catch {
+        const valorNumerico = integrarNumericamente(funcion, a, b);
+        if (valorNumerico != null) {
+            return {
+                disponible: true,
+                expresion: "Integral numérica (método de Simpson)",
+                valor: valorNumerico
+            };
+        }
+
         return {
             disponible: false,
             expresion: "No disponible",
