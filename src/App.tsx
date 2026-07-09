@@ -8,6 +8,7 @@ import { calcularRiemann, generarRectangulos, calcularIntegralExacta, calcularAr
 
 const Plot = createPlotlyComponent(Plotly);
 
+// Estas funciones ayudan a que la expresión escrita por el usuario se vea más clara en la interfaz.
 function formatearExpresionParaUI(input: string): string {
     let expr = (input ?? "").trim();
     if (!expr) return "f(x)";
@@ -137,6 +138,7 @@ function App() {
             accent: "#2563eb"
         };
 
+    // Cuando el usuario escribe una integral completa, la convertimos en una función normal y en límites de a y b.
     useEffect(() => {
         const t = window.setTimeout(() => {
             const parsed = parseDefiniteIntegral(editFuncion);
@@ -185,6 +187,7 @@ function App() {
         return () => window.clearTimeout(id);
     }, [showConfetti]);
 
+    // Antes de calcular, revisamos que los datos tengan sentido y que la función se pueda evaluar.
     const validation = useMemo(() => {
         const errors: string[] = [];
         const warnings: string[] = [];
@@ -398,6 +401,7 @@ function App() {
         setShowConfetti(false);
     }
 
+    // Este botón toma la función actual, prepara los datos y empieza la animación del gráfico.
     function handleCalcular() {
         const parsed = parseDefiniteIntegral(editFuncion);
         const expressionFinal = parsed ? normalizarExpresion(parsed.expr) : normalizarExpresion(editFuncion);
@@ -454,6 +458,7 @@ function App() {
         setHasCalculated(false);
     }
 
+    // Permite guardar una imagen o un PDF del gráfico para compartirlo o conservarlo.
     async function handleExport(format: "png" | "pdf") {
         if (format === "pdf") {
             const pdf = new jsPDF("landscape", "pt", "a4");

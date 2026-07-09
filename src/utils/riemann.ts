@@ -54,6 +54,7 @@ function normalizarExpresion(expresion: string) {
     }
 }
 
+// Ayuda a convertir la expresión a un formato que mathjs pueda leer de manera más fiable.
 function normalizarTextoFuncion(expresion: string): string {
     let texto = expresion.trim();
     if (!texto) return "x";
@@ -76,6 +77,7 @@ function normalizarTextoFuncion(expresion: string): string {
     return texto;
 }
 
+// Evalúa la función en un punto concreto, incluso si tiene formas especiales como funciones por partes.
 function evaluarConSoporte(expresion: string, x: number): number | null {
     const texto = normalizarTextoFuncion(expresion);
     if (!texto) return null;
@@ -280,6 +282,7 @@ export function calcularAreaReal(funcion: string, a: number, b: number): number 
     return integrarNumericamente(`abs(${normalizarTextoFuncion(funcion)})`, a, b);
 }
 
+// Calcula el área aproximada usando rectángulos, según el método elegido por el usuario.
 export function calcularRiemann(
     funcion: string,
     a: number,
@@ -325,6 +328,7 @@ export function calcularRiemann(
     };
 }
 
+// Intenta encontrar una respuesta exacta con reglas matemáticas; si no puede, usa una aproximación numérica.
 export function calcularIntegralExacta(funcion: string, a: number, b: number): IntegralExacta {
     try {
         const expr = parse(funcion);
@@ -376,6 +380,7 @@ export function calcularIntegralExacta(funcion: string, a: number, b: number): I
     }
 }
 
+// Crea los rectángulos que se muestran en el gráfico para representar la suma de Riemann.
 export function generarRectangulos(
     funcion: string,
     a: number,
